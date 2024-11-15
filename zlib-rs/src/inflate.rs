@@ -527,7 +527,7 @@ impl<'a> State<'a> {
         // load variables to the stack
         load!(self);
 
-        let return_code = 'label: loop {
+        let return_code = 'label: {
             macro_rules! pull_byte {
                 ($self:expr) => {
                     match bit_reader.pull_byte() {
@@ -546,12 +546,12 @@ impl<'a> State<'a> {
                 };
             }
 
-            match self.mode {
+            'next: match self.mode {
                 Mode::Head => {
                     if self.wrap == 0 {
                         self.mode = Mode::TypeDo;
 
-                        continue 'label;
+                        continue 'next Mode::TypeDo;
                     }
 
                     need_bits!(self, 16);
@@ -569,7 +569,7 @@ impl<'a> State<'a> {
 
                         self.mode = Mode::Flags;
 
-                        continue 'label;
+                        continue 'next Mode::Flags;
                     }
 
                     if let Some(header) = &mut self.head {
@@ -610,13 +610,13 @@ impl<'a> State<'a> {
 
                         self.mode = Mode::DictId;
 
-                        continue 'label;
+                        continue 'next Mode::DictId;
                     } else {
                         bit_reader.init_bits();
 
                         self.mode = Mode::Type;
 
-                        continue 'label;
+                        continue 'next Mode::Type;
                     }
                 }
                 Mode::Flags => {
@@ -647,7 +647,7 @@ impl<'a> State<'a> {
                     bit_reader.init_bits();
                     self.mode = Mode::Time;
 
-                    continue 'label;
+                    continue 'next Mode::Time;
                 }
                 Mode::Time => {
                     need_bits!(self, 32);
@@ -663,7 +663,7 @@ impl<'a> State<'a> {
                     bit_reader.init_bits();
                     self.mode = Mode::Os;
 
-                    continue 'label;
+                    continue 'next Mode::Os;
                 }
                 Mode::Os => {
                     need_bits!(self, 16);
@@ -680,7 +680,7 @@ impl<'a> State<'a> {
                     bit_reader.init_bits();
                     self.mode = Mode::ExLen;
 
-                    continue 'label;
+                    continue 'next Mode::ExLen;
                 }
                 Mode::ExLen => {
                     if (self.gzip_flags & 0x0400) != 0 {
@@ -703,7 +703,7 @@ impl<'a> State<'a> {
 
                     self.mode = Mode::Extra;
 
-                    continue 'label;
+                    continue 'next Mode::Extra;
                 }
                 Mode::Extra => {
                     if (self.gzip_flags & 0x0400) != 0 {
@@ -765,7 +765,7 @@ impl<'a> State<'a> {
                     self.length = 0;
                     self.mode = Mode::Name;
 
-                    continue 'label;
+                    continue 'next Mode::Name;
                 }
                 Mode::Name => {
                     if (self.gzip_flags & 0x0800) != 0 {
@@ -823,7 +823,7 @@ impl<'a> State<'a> {
                     self.length = 0;
                     self.mode = Mode::Comment;
 
-                    continue 'label;
+                    continue 'next Mode::Comment;
                 }
                 Mode::Comment => {
                     if (self.gzip_flags & 0x01000) != 0 {
@@ -880,7 +880,7 @@ impl<'a> State<'a> {
 
                     self.mode = Mode::HCrc;
 
-                    continue 'label;
+                    continue 'next Mode::HCrc;
                 }
                 Mode::HCrc => {
                     if (self.gzip_flags & 0x0200) != 0 {
@@ -909,7 +909,7 @@ impl<'a> State<'a> {
 
                     self.mode = Mode::Type;
 
-                    continue 'label;
+                    continue 'next Mode::Type;
                 }
                 Mode::Type => {
                     use InflateFlush::*;
@@ -919,7 +919,7 @@ impl<'a> State<'a> {
                         NoFlush | SyncFlush | Finish => {
                             // NOTE: this is slightly different to what zlib-rs does!
                             self.mode = Mode::TypeDo;
-                            continue 'label;
+                        continue 'next Mode::TypeDo;
                         }
                     }
                 }
@@ -928,7 +928,7 @@ impl<'a> State<'a> {
                         bit_reader.next_byte_boundary();
                         self.mode = Mode::Check;
 
-                        continue 'label;
+                        continue 'next Mode::Check;
                     }
 
                     need_bits!(self, 3);
@@ -945,7 +945,7 @@ impl<'a> State<'a> {
 
                             self.mode = Mode::Stored;
 
-                            continue 'label;
+                        continue 'next Mode::Stored;
                         }
                         0b01 => {
                             // eprintln!("inflate:     fixed codes block (last = {last})");
@@ -967,7 +967,7 @@ impl<'a> State<'a> {
                             if let InflateFlush::Trees = self.flush {
                                 break 'label self.inflate_leave(ReturnCode::Ok);
                             } else {
-                                continue 'label;
+                                continue 'next Mode::Len_;
                             }
                         }
                         0b10 => {
@@ -977,7 +977,7 @@ impl<'a> State<'a> {
 
                             self.mode = Mode::Table;
 
-                            continue 'label;
+                            continue 'next Mode::Table;
                         }
                         0b11 => {
                             // eprintln!("inflate:     invalid block type");
@@ -1017,7 +1017,7 @@ impl<'a> State<'a> {
                     } else {
                         self.mode = Mode::CopyBlock;
 
-                        continue 'label;
+                        continue 'next Mode::CopyBlock;
                     }
                 }
                 Mode::CopyBlock => {
@@ -1043,7 +1043,7 @@ impl<'a> State<'a> {
 
                     self.mode = Mode::Type;
 
-                    continue 'label;
+                    continue 'next Mode::Type;
                 }
                 Mode::Check => {
                     if !cfg!(feature = "__internal-fuzz-disable-checksum") && self.wrap != 0 {
@@ -1077,7 +1077,7 @@ impl<'a> State<'a> {
                     }
                     self.mode = Mode::Length;
 
-                    continue 'label;
+                    continue 'next Mode::Length;
                 }
                 Mode::Len => {
                     let avail_in = bit_reader.bytes_remaining();
@@ -1091,7 +1091,7 @@ impl<'a> State<'a> {
                         restore!(self);
                         inflate_fast_help(self, 0);
                         load!(self);
-                        continue 'label;
+                        continue 'next self.mode;
                     }
 
                     self.back = 0;
@@ -1132,7 +1132,7 @@ impl<'a> State<'a> {
                     if here.op == 0 {
                         self.mode = Mode::Lit;
 
-                        continue 'label;
+                        continue 'next Mode::Lit;
                     } else if here.op & 32 != 0 {
                         // end of block
 
@@ -1141,7 +1141,7 @@ impl<'a> State<'a> {
                         self.back = usize::MAX;
                         self.mode = Mode::Type;
 
-                        continue 'label;
+                        continue 'next Mode::Type;
                     } else if here.op & 64 != 0 {
                         self.mode = Mode::Bad;
 
@@ -1151,13 +1151,13 @@ impl<'a> State<'a> {
                         self.extra = (here.op & MAX_BITS) as usize;
                         self.mode = Mode::LenExt;
 
-                        continue 'label;
+                        continue 'next Mode::LenExt;
                     }
                 }
                 Mode::Len_ => {
                     self.mode = Mode::Len;
 
-                    continue 'label;
+                    continue 'next Mode::Len;
                 }
                 Mode::LenExt => {
                     let extra = self.extra;
@@ -1175,7 +1175,7 @@ impl<'a> State<'a> {
                     self.was = self.length;
                     self.mode = Mode::Dist;
 
-                    continue 'label;
+                    continue 'next Mode::Dist;
                 }
                 Mode::Lit => {
                     if writer.is_full() {
@@ -1188,7 +1188,7 @@ impl<'a> State<'a> {
 
                     self.mode = Mode::Len;
 
-                    continue 'label;
+                    continue 'next Mode::Len;
                 }
                 Mode::Dist => {
                     // get distance code
@@ -1234,7 +1234,7 @@ impl<'a> State<'a> {
                     self.extra = (here.op & MAX_BITS) as usize;
                     self.mode = Mode::DistExt;
 
-                    continue 'label;
+                    continue 'next Mode::DistExt;
                 }
                 Mode::DistExt => {
                     let extra = self.extra;
@@ -1255,7 +1255,7 @@ impl<'a> State<'a> {
 
                     self.mode = Mode::Match;
 
-                    continue 'label;
+                    continue 'next Mode::Match;
                 }
                 Mode::Match => {
                     'match_: loop {
@@ -1311,7 +1311,7 @@ impl<'a> State<'a> {
                         if self.length == 0 {
                             self.mode = Mode::Len;
 
-                            continue 'label;
+                            continue 'next Mode::Len;
                         } else {
                             // otherwise it seems to recurse?
                             continue 'match_;
@@ -1337,7 +1337,7 @@ impl<'a> State<'a> {
                     self.have = 0;
                     self.mode = Mode::LenLens;
 
-                    continue 'label;
+                    continue 'next Mode::LenLens;
                 }
                 Mode::LenLens => {
                     // permutation of code lengths ;
@@ -1377,7 +1377,7 @@ impl<'a> State<'a> {
                     self.have = 0;
                     self.mode = Mode::CodeLens;
 
-                    continue 'label;
+                    continue 'next Mode::CodeLens;
                 }
                 Mode::CodeLens => {
                     while self.have < self.nlen + self.ndist {
@@ -1506,7 +1506,7 @@ impl<'a> State<'a> {
                         break 'label self.inflate_leave(ReturnCode::Ok);
                     }
 
-                    continue 'label;
+                    continue 'next Mode::Len_;
                 }
                 Mode::Dict => {
                     if !self.flags.contains(Flags::HAVE_DICT) {
@@ -1517,7 +1517,7 @@ impl<'a> State<'a> {
 
                     self.mode = Mode::Type;
 
-                    continue 'label;
+                    continue 'next Mode::Type;
                 }
                 Mode::DictId => {
                     need_bits!(self, 32);
@@ -1528,7 +1528,7 @@ impl<'a> State<'a> {
 
                     self.mode = Mode::Dict;
 
-                    continue 'label;
+                    continue 'next Mode::Dict;
                 }
                 Mode::Bad => {
                     let msg = "repeated call with bad state\0";
