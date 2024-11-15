@@ -565,8 +565,8 @@ impl<'a> State<'a> {
                             self.wbits = 15;
                         }
 
-                        let b0 = bit_reader.bits(8) as u8;
-                        let b1 = (bit_reader.hold() >> 8) as u8;
+                        let mut b0 = bit_reader.bits(8) as u8;
+                        let mut b1 = (bit_reader.hold() >> 8) as u8;
                         self.checksum = crc32(crate::CRC32_INITIAL_VALUE, &[b0, b1]);
                         bit_reader.init_bits();
 
@@ -593,7 +593,7 @@ impl<'a> State<'a> {
                     }
 
                     bit_reader.drop_bits(4);
-                    let len = bit_reader.bits(4) as u8 + 8;
+                    let mut len = bit_reader.bits(4) as u8 + 8;
 
                     if self.wbits == 0 {
                         self.wbits = len;
@@ -1001,7 +1001,7 @@ impl<'a> State<'a> {
 
                     need_bits!(self, 32);
 
-                    let hold = bit_reader.bits(32) as u32;
+                    let mut hold = bit_reader.bits(32) as u32;
 
                     // eprintln!("hold {hold:#x}");
 
@@ -1083,8 +1083,8 @@ impl<'a> State<'a> {
                     continue 'next Mode::Length;
                 }
                 Mode::Len => {
-                    let avail_in = bit_reader.bytes_remaining();
-                    let avail_out = writer.remaining();
+                    let mut avail_in = bit_reader.bytes_remaining();
+                    let mut avail_out = writer.remaining();
 
                     // INFLATE_FAST_MIN_LEFT is important. It makes sure there is at least 32 bytes of free
                     // space available. This means for many SIMD operations we don't need to process a
@@ -1163,7 +1163,7 @@ impl<'a> State<'a> {
                     continue 'next Mode::Len;
                 }
                 Mode::LenExt => {
-                    let extra = self.extra;
+                    let mut extra = self.extra;
 
                     // get extra bits, if any
                     if extra != 0 {
@@ -1240,7 +1240,7 @@ impl<'a> State<'a> {
                     continue 'next Mode::DistExt;
                 }
                 Mode::DistExt => {
-                    let extra = self.extra;
+                    let mut extra = self.extra;
 
                     if extra > 0 {
                         need_bits!(self, extra);
@@ -1268,10 +1268,10 @@ impl<'a> State<'a> {
                             break 'label self.inflate_leave(ReturnCode::Ok);
                         }
 
-                        let left = writer.remaining();
-                        let copy = writer.len();
+                        let mut left = writer.remaining();
+                        let mut copy = writer.len();
 
-                        let copy = if self.offset > copy {
+                        let mut copy = if self.offset > copy {
                             // copy from window to output
 
                             let mut copy = self.offset - copy;
@@ -1362,7 +1362,7 @@ impl<'a> State<'a> {
 
                     self.len_table.bits = 7;
 
-                    let InflateTable::Success(root) = inflate_table(
+                    let InflateTable::Success(mut root) = inflate_table(
                         CodeType::Codes,
                         &self.lens,
                         19,
@@ -1471,7 +1471,7 @@ impl<'a> State<'a> {
 
                     self.len_table.bits = 10;
 
-                    let InflateTable::Success(root) = inflate_table(
+                    let InflateTable::Success(mut root) = inflate_table(
                         CodeType::Lens,
                         &self.lens,
                         self.nlen,
@@ -1488,7 +1488,7 @@ impl<'a> State<'a> {
 
                     self.dist_table.bits = 9;
 
-                    let InflateTable::Success(root) = inflate_table(
+                    let InflateTable::Success(mut root) = inflate_table(
                         CodeType::Dists,
                         &self.lens[self.nlen..],
                         self.ndist,
