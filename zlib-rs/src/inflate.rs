@@ -509,11 +509,13 @@ impl<'a> State<'a> {
     fn dispatch(&mut self) -> ReturnCode {
         let mut writer;
         let mut bit_reader;
+        let mut mode;
 
         macro_rules! load {
             ($state:expr) => {
                 bit_reader = core::mem::replace(&mut $state.bit_reader, BitReader::new(&[]));
                 writer = core::mem::replace(&mut $state.writer, Writer::new(&mut []));
+                mode = $state.mode;
             };
         }
 
@@ -521,6 +523,7 @@ impl<'a> State<'a> {
             ($state:expr) => {
                 $state.bit_reader = bit_reader;
                 $state.writer = writer;
+                $state.mode = mode;
             };
         }
 
@@ -546,10 +549,10 @@ impl<'a> State<'a> {
                 };
             }
 
-            'next: match self.mode {
+            'next: match mode {
                 Mode::Head => {
                     if self.wrap == 0 {
-                        self.mode = Mode::TypeDo;
+                        mode = Mode::TypeDo;
 
                         continue 'next Mode::TypeDo;
                     }
@@ -567,7 +570,7 @@ impl<'a> State<'a> {
                         self.checksum = crc32(crate::CRC32_INITIAL_VALUE, &[b0, b1]);
                         bit_reader.init_bits();
 
-                        self.mode = Mode::Flags;
+                        mode = Mode::Flags;
 
                         continue 'next Mode::Flags;
                     }
@@ -580,12 +583,12 @@ impl<'a> State<'a> {
                     if (self.wrap & 1) == 0
                         || ((bit_reader.bits(8) << 8) + (bit_reader.hold() >> 8)) % 31 != 0
                     {
-                        self.mode = Mode::Bad;
+                        mode = Mode::Bad;
                         break 'label self.bad("incorrect header check\0");
                     }
 
                     if bit_reader.bits(4) != Z_DEFLATED as u64 {
-                        self.mode = Mode::Bad;
+                        mode = Mode::Bad;
                         break 'label self.bad("unknown compression method\0");
                     }
 
@@ -597,7 +600,7 @@ impl<'a> State<'a> {
                     }
 
                     if len as i32 > MAX_WBITS || len > self.wbits {
-                        self.mode = Mode::Bad;
+                        mode = Mode::Bad;
                         break 'label self.bad("invalid window size\0");
                     }
 
@@ -608,13 +611,13 @@ impl<'a> State<'a> {
                     if bit_reader.hold() & 0x200 != 0 {
                         bit_reader.init_bits();
 
-                        self.mode = Mode::DictId;
+                        mode = Mode::DictId;
 
                         continue 'next Mode::DictId;
                     } else {
                         bit_reader.init_bits();
 
-                        self.mode = Mode::Type;
+                        mode = Mode::Type;
 
                         continue 'next Mode::Type;
                     }
@@ -625,12 +628,12 @@ impl<'a> State<'a> {
 
                     // Z_DEFLATED = 8 is the only supported method
                     if self.gzip_flags & 0xff != Z_DEFLATED {
-                        self.mode = Mode::Bad;
+                        mode = Mode::Bad;
                         break 'label self.bad("unknown compression method\0");
                     }
 
                     if self.gzip_flags & 0xe000 != 0 {
-                        self.mode = Mode::Bad;
+                        mode = Mode::Bad;
                         break 'label self.bad("unknown header flags set\0");
                     }
 
@@ -645,7 +648,7 @@ impl<'a> State<'a> {
                     }
 
                     bit_reader.init_bits();
-                    self.mode = Mode::Time;
+                    mode = Mode::Time;
 
                     continue 'next Mode::Time;
                 }
@@ -661,7 +664,7 @@ impl<'a> State<'a> {
                     }
 
                     bit_reader.init_bits();
-                    self.mode = Mode::Os;
+                    mode = Mode::Os;
 
                     continue 'next Mode::Os;
                 }
@@ -678,7 +681,7 @@ impl<'a> State<'a> {
                     }
 
                     bit_reader.init_bits();
-                    self.mode = Mode::ExLen;
+                    mode = Mode::ExLen;
 
                     continue 'next Mode::ExLen;
                 }
@@ -701,7 +704,7 @@ impl<'a> State<'a> {
                         head.extra = core::ptr::null_mut();
                     }
 
-                    self.mode = Mode::Extra;
+                    mode = Mode::Extra;
 
                     continue 'next Mode::Extra;
                 }
@@ -763,7 +766,7 @@ impl<'a> State<'a> {
                     }
 
                     self.length = 0;
-                    self.mode = Mode::Name;
+                    mode = Mode::Name;
 
                     continue 'next Mode::Name;
                 }
@@ -821,7 +824,7 @@ impl<'a> State<'a> {
                     }
 
                     self.length = 0;
-                    self.mode = Mode::Comment;
+                    mode = Mode::Comment;
 
                     continue 'next Mode::Comment;
                 }
@@ -878,7 +881,7 @@ impl<'a> State<'a> {
                         head.comment = core::ptr::null_mut();
                     }
 
-                    self.mode = Mode::HCrc;
+                    mode = Mode::HCrc;
 
                     continue 'next Mode::HCrc;
                 }
@@ -889,7 +892,7 @@ impl<'a> State<'a> {
                         if (self.wrap & 4) != 0
                             && bit_reader.hold() as u32 != (self.checksum & 0xffff)
                         {
-                            self.mode = Mode::Bad;
+                            mode = Mode::Bad;
                             break 'label self.bad("header crc mismatch\0");
                         }
 
@@ -907,7 +910,7 @@ impl<'a> State<'a> {
                         self.checksum = crate::CRC32_INITIAL_VALUE;
                     }
 
-                    self.mode = Mode::Type;
+                    mode = Mode::Type;
 
                     continue 'next Mode::Type;
                 }
@@ -918,7 +921,7 @@ impl<'a> State<'a> {
                         Block | Trees => break 'label ReturnCode::Ok,
                         NoFlush | SyncFlush | Finish => {
                             // NOTE: this is slightly different to what zlib-rs does!
-                            self.mode = Mode::TypeDo;
+                            mode = Mode::TypeDo;
                         continue 'next Mode::TypeDo;
                         }
                     }
@@ -926,7 +929,7 @@ impl<'a> State<'a> {
                 Mode::TypeDo => {
                     if self.flags.contains(Flags::IS_LAST_BLOCK) {
                         bit_reader.next_byte_boundary();
-                        self.mode = Mode::Check;
+                        mode = Mode::Check;
 
                         continue 'next Mode::Check;
                     }
@@ -943,7 +946,7 @@ impl<'a> State<'a> {
 
                             bit_reader.drop_bits(2);
 
-                            self.mode = Mode::Stored;
+                            mode = Mode::Stored;
 
                         continue 'next Mode::Stored;
                         }
@@ -960,7 +963,7 @@ impl<'a> State<'a> {
                                 bits: 5,
                             };
 
-                            self.mode = Mode::Len_;
+                            mode = Mode::Len_;
 
                             bit_reader.drop_bits(2);
 
@@ -975,7 +978,7 @@ impl<'a> State<'a> {
 
                             bit_reader.drop_bits(2);
 
-                            self.mode = Mode::Table;
+                            mode = Mode::Table;
 
                             continue 'next Mode::Table;
                         }
@@ -984,7 +987,7 @@ impl<'a> State<'a> {
 
                             bit_reader.drop_bits(2);
 
-                            self.mode = Mode::Bad;
+                            mode = Mode::Bad;
                             break 'label self.bad("invalid block type\0");
                         }
                         _ => {
@@ -1003,7 +1006,7 @@ impl<'a> State<'a> {
                     // eprintln!("hold {hold:#x}");
 
                     if hold as u16 != !((hold >> 16) as u16) {
-                        self.mode = Mode::Bad;
+                        mode = Mode::Bad;
                         break 'label self.bad("invalid stored block lengths\0");
                     }
 
@@ -1015,7 +1018,7 @@ impl<'a> State<'a> {
                     if let InflateFlush::Trees = self.flush {
                         break 'label self.inflate_leave(ReturnCode::Ok);
                     } else {
-                        self.mode = Mode::CopyBlock;
+                        mode = Mode::CopyBlock;
 
                         continue 'next Mode::CopyBlock;
                     }
@@ -1041,7 +1044,7 @@ impl<'a> State<'a> {
                         self.length -= copy;
                     }
 
-                    self.mode = Mode::Type;
+                    mode = Mode::Type;
 
                     continue 'next Mode::Type;
                 }
@@ -1069,13 +1072,13 @@ impl<'a> State<'a> {
                         self.out_available = writer.capacity() - writer.len();
 
                         if self.wrap & 4 != 0 && given_checksum != self.checksum {
-                            self.mode = Mode::Bad;
+                            mode = Mode::Bad;
                             break 'label self.bad("incorrect data check\0");
                         }
 
                         bit_reader.init_bits();
                     }
-                    self.mode = Mode::Length;
+                    mode = Mode::Length;
 
                     continue 'next Mode::Length;
                 }
@@ -1091,7 +1094,7 @@ impl<'a> State<'a> {
                         restore!(self);
                         inflate_fast_help(self, 0);
                         load!(self);
-                        continue 'next self.mode;
+                        continue 'next mode;
                     }
 
                     self.back = 0;
@@ -1130,7 +1133,7 @@ impl<'a> State<'a> {
                     self.length = here.val as usize;
 
                     if here.op == 0 {
-                        self.mode = Mode::Lit;
+                        mode = Mode::Lit;
 
                         continue 'next Mode::Lit;
                     } else if here.op & 32 != 0 {
@@ -1139,23 +1142,23 @@ impl<'a> State<'a> {
                         // eprintln!("inflate:         end of block");
 
                         self.back = usize::MAX;
-                        self.mode = Mode::Type;
+                        mode = Mode::Type;
 
                         continue 'next Mode::Type;
                     } else if here.op & 64 != 0 {
-                        self.mode = Mode::Bad;
+                        mode = Mode::Bad;
 
                         break 'label self.bad("invalid literal/length code\0");
                     } else {
                         // length code
                         self.extra = (here.op & MAX_BITS) as usize;
-                        self.mode = Mode::LenExt;
+                        mode = Mode::LenExt;
 
                         continue 'next Mode::LenExt;
                     }
                 }
                 Mode::Len_ => {
-                    self.mode = Mode::Len;
+                    mode = Mode::Len;
 
                     continue 'next Mode::Len;
                 }
@@ -1173,7 +1176,7 @@ impl<'a> State<'a> {
                     // eprintln!("inflate: length {}", state.length);
 
                     self.was = self.length;
-                    self.mode = Mode::Dist;
+                    mode = Mode::Dist;
 
                     continue 'next Mode::Dist;
                 }
@@ -1186,7 +1189,7 @@ impl<'a> State<'a> {
 
                     writer.push(self.length as u8);
 
-                    self.mode = Mode::Len;
+                    mode = Mode::Len;
 
                     continue 'next Mode::Len;
                 }
@@ -1225,14 +1228,14 @@ impl<'a> State<'a> {
                     bit_reader.drop_bits(here.bits);
 
                     if here.op & 64 != 0 {
-                        self.mode = Mode::Bad;
+                        mode = Mode::Bad;
                         break 'label self.bad("invalid distance code\0");
                     }
 
                     self.offset = here.val as usize;
 
                     self.extra = (here.op & MAX_BITS) as usize;
-                    self.mode = Mode::DistExt;
+                    mode = Mode::DistExt;
 
                     continue 'next Mode::DistExt;
                 }
@@ -1247,13 +1250,13 @@ impl<'a> State<'a> {
                     }
 
                     if INFLATE_STRICT && self.offset > self.dmax {
-                        self.mode = Mode::Bad;
+                        mode = Mode::Bad;
                         break 'label self.bad("invalid distance code too far back\0");
                     }
 
                     // eprintln!("inflate: distance {}", state.offset);
 
-                    self.mode = Mode::Match;
+                    mode = Mode::Match;
 
                     continue 'next Mode::Match;
                 }
@@ -1275,7 +1278,7 @@ impl<'a> State<'a> {
 
                             if copy > self.window.have() {
                                 if self.flags.contains(Flags::SANE) {
-                                    self.mode = Mode::Bad;
+                                    mode = Mode::Bad;
                                     break 'label self.bad("invalid distance too far back\0");
                                 }
 
@@ -1309,7 +1312,7 @@ impl<'a> State<'a> {
                         self.length -= copy;
 
                         if self.length == 0 {
-                            self.mode = Mode::Len;
+                            mode = Mode::Len;
 
                             continue 'next Mode::Len;
                         } else {
@@ -1330,12 +1333,12 @@ impl<'a> State<'a> {
 
                     // TODO pkzit_bug_workaround
                     if self.nlen > 286 || self.ndist > 30 {
-                        self.mode = Mode::Bad;
+                        mode = Mode::Bad;
                         break 'label self.bad("too many length or distance symbols\0");
                     }
 
                     self.have = 0;
-                    self.mode = Mode::LenLens;
+                    mode = Mode::LenLens;
 
                     continue 'next Mode::LenLens;
                 }
@@ -1367,7 +1370,7 @@ impl<'a> State<'a> {
                         self.len_table.bits,
                         &mut self.work,
                     ) else {
-                        self.mode = Mode::Bad;
+                        mode = Mode::Bad;
                         break 'label self.bad("invalid code lengths set\0");
                     };
 
@@ -1375,7 +1378,7 @@ impl<'a> State<'a> {
                     self.len_table.bits = root;
 
                     self.have = 0;
-                    self.mode = Mode::CodeLens;
+                    mode = Mode::CodeLens;
 
                     continue 'next Mode::CodeLens;
                 }
@@ -1403,7 +1406,7 @@ impl<'a> State<'a> {
                                 need_bits!(self, here_bits as usize + 2);
                                 bit_reader.drop_bits(here_bits);
                                 if self.have == 0 {
-                                    self.mode = Mode::Bad;
+                                    mode = Mode::Bad;
                                     break 'label self.bad("invalid bit length repeat\0");
                                 }
 
@@ -1412,7 +1415,7 @@ impl<'a> State<'a> {
                                 bit_reader.drop_bits(2);
 
                                 if self.have + copy > self.nlen + self.ndist {
-                                    self.mode = Mode::Bad;
+                                    mode = Mode::Bad;
                                     break 'label self.bad("invalid bit length repeat\0");
                                 }
 
@@ -1429,7 +1432,7 @@ impl<'a> State<'a> {
                                 bit_reader.drop_bits(3);
 
                                 if self.have + copy > self.nlen + self.ndist {
-                                    self.mode = Mode::Bad;
+                                    mode = Mode::Bad;
                                     break 'label self.bad("invalid bit length repeat\0");
                                 }
 
@@ -1446,7 +1449,7 @@ impl<'a> State<'a> {
                                 bit_reader.drop_bits(7);
 
                                 if self.have + copy > self.nlen + self.ndist {
-                                    self.mode = Mode::Bad;
+                                    mode = Mode::Bad;
                                     break 'label self.bad("invalid bit length repeat\0");
                                 }
 
@@ -1460,7 +1463,7 @@ impl<'a> State<'a> {
 
                     // check for end-of-block code (better have one)
                     if self.lens[256] == 0 {
-                        self.mode = Mode::Bad;
+                        mode = Mode::Bad;
                         break 'label self.bad("invalid code -- missing end-of-block\0");
                     }
 
@@ -1476,7 +1479,7 @@ impl<'a> State<'a> {
                         self.len_table.bits,
                         &mut self.work,
                     ) else {
-                        self.mode = Mode::Bad;
+                        mode = Mode::Bad;
                         break 'label self.bad("invalid literal/lengths set\0");
                     };
 
@@ -1493,14 +1496,14 @@ impl<'a> State<'a> {
                         self.dist_table.bits,
                         &mut self.work,
                     ) else {
-                        self.mode = Mode::Bad;
+                        mode = Mode::Bad;
                         break 'label self.bad("invalid distances set\0");
                     };
 
                     self.dist_table.bits = root;
                     self.dist_table.codes = Codes::Dist;
 
-                    self.mode = Mode::Len_;
+                    mode = Mode::Len_;
 
                     if matches!(self.flush, InflateFlush::Trees) {
                         break 'label self.inflate_leave(ReturnCode::Ok);
@@ -1515,7 +1518,7 @@ impl<'a> State<'a> {
 
                     self.checksum = crate::ADLER32_INITIAL_VALUE as _;
 
-                    self.mode = Mode::Type;
+                    mode = Mode::Type;
 
                     continue 'next Mode::Type;
                 }
@@ -1526,7 +1529,7 @@ impl<'a> State<'a> {
 
                     bit_reader.init_bits();
 
-                    self.mode = Mode::Dict;
+                    mode = Mode::Dict;
 
                     continue 'next Mode::Dict;
                 }
@@ -1549,7 +1552,7 @@ impl<'a> State<'a> {
                     if self.wrap != 0 && self.gzip_flags != 0 {
                         need_bits!(self, 32);
                         if (self.wrap & 4) != 0 && bit_reader.hold() != self.total as u64 {
-                            self.mode = Mode::Bad;
+                            mode = Mode::Bad;
                             break 'label self.bad("incorrect length check\0");
                         }
 
